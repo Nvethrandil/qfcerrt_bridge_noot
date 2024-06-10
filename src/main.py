@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 __author__ = 'Noah Otte <nvethrandil@gmail.com>'
-__version__= '0.1'
+__version__= '0.3'
 __license__= 'MIT'
 
 # Ros libraries
@@ -9,7 +9,7 @@ import rospy
 # Python libraries
 import numpy as np
 import time
-# My libraries
+# Pathplanner libraries
 from qfcerrt_noot.src.QFCE_RRT import QFCERRT as Planner
 # Ros messages
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
@@ -17,25 +17,48 @@ from geometry_msgs.msg import Pose, PoseStamped, PointStamped
 
 # Planner to ROS System bridge
 class PlannerBridge():
+    """
+    A planner-ros-bridge class which handles the transition between ROS messages and the python based pathplanner
+    """
+    # Initialization function
     def __init__(self, 
                  map_id: str, 
                  robotpose_id: str,
                  goal_id: str,
                  traversability_upper_boundary: int, 
                  unknown_are: int,
-                 safety_buffer_in_meters: float,
+                 safety_buffer: float,
                  iterations: int,
                  stepdistance: int
                  ):
-        
-        print("Initializing planner . . .")
+        """
+        Initialization method for the PlannerBridge class
+
+        Args:
+            map_id (str): 
+                The ROS topic name of the map to plan in
+            robotpose_id (str): 
+                The ROS topic name of the robots position
+            goal_id (str): 
+                The ROS topic name of the goal point to reach
+            traversability_upper_boundary (int): 
+                The highest tolerated traversability score of cells in the map
+            unknown_are (int): 
+                The value to interprete unknown cells in the map as
+            safety_buffer_in_meters (float): 
+                The amount of to inflate each occupied cell in the map
+            iterations (int): 
+                The maximum amount of iterations to let the planner run
+            stepdistance (int): 
+                The root of the minimum cell area tolerated in the Quadtree
+        """
+        print("PlannerBridge is waiting for all topics . . .")
         # Placeholders
         self.VERBOSE = False
         self.robo_coords = None
         self.goal_coords = None
         self.height_map = None
         self.mapUGV = None
-        self.raw_occmap = None
         self.latest_path = None
         # Subscriber IDs
         self.map_id = map_id
@@ -45,7 +68,7 @@ class PlannerBridge():
         self.planner = None
         self.traversability_upper_boundary = traversability_upper_boundary
         self.unknown_are = unknown_are
-        self.safety_buffer = safety_buffer_in_meters
+        self.safety_buffer = safety_buffer
         self.iterations = iterations
         self.step_distance = stepdistance
         
@@ -55,58 +78,101 @@ class PlannerBridge():
         # Planning is initiated by callback of map
         self.subscriber_map = rospy.Subscriber(self.map_id, OccupancyGrid, self.callback_map)
         # Create publisher
-        self.publisher = rospy.Publisher('path_pub', Path, queue_size=1)
-        
+        self.publisher = rospy.Publisher('path_pub', Path, queue_size=1)  
+    
+    
     def callback_pose(self, data: Pose):
+        """Callback method for the robots position topic subscriber
+
+        Args:
+            data (Pose): 
+                The robots position topic ROS message
+        """
         if self.VERBOSE:
             print('recieved posedata of type: "%s' % data.format)
-        #print("callback_pose")    
+            
         self.robo_coords = [data.pose.pose.position.x, data.pose.pose.position.y]
     
+    
     def callback_goal(self, msg: PointStamped):
+        """
+        Callback method for the goal topic subscriber.
+
+        Args:
+            msg (PointStamped): 
+                The goal point topic ROS message
+        """
         if self.VERBOSE:
             print('recieved posedata of type: "%s' % msg.format)
-        #print("callback_goal")     
-        self.goal_coords = [msg.point.x, msg.point.y]    
-    # This is where the magic happens    
+             
+        self.goal_coords = [msg.point.x, msg.point.y]
+        
+       
+    # Pathplanning is initiated by this callback method  
     def callback_map(self, msg: OccupancyGrid):
-            if self.VERBOSE:
-                print('recieved mapUGV of type: "%s' % msg.format)
-            if self.robo_coords and self.goal_coords:
-                #print("callback_map") 
-                # Convert Occupancy grid into Numpy Array
-                mapUGV =  self.occupancygrid_to_numpy(msg)
-                trav_bound_upper = self.traversability_upper_boundary
-                unknown_are = self.unknown_are
-                # everything above upper is 1 == nontraversable
-                mapUGV = np.where(mapUGV >= trav_bound_upper, 1, mapUGV) 
-                # unkown pixels are set to unknown_are value
-                mapUGV = np.where(mapUGV == -1, unknown_are, mapUGV) 
-                mapUGV = np.where(mapUGV > 1, 1, mapUGV)
-                
-                self.mapUGV = mapUGV
-                self.raw_occmap = msg
-                
-                start = self.world2map([self.robo_coords[0], self.robo_coords[1]], msg) 
-                #goal = self.goal_coords
-                goal = self.world2map([self.goal_coords[0], self.goal_coords[1]], msg)
-                
-                # Clumsy way of handling replanning
-                if self.planner:
-                    if self.planner.need2replan(start, self.mapUGV):
-                        if self.plan_path(start, goal, msg):
-                            self.publish_path()
-                    else:
+        """
+        Callback method for the occupancy map subscriber. Converts recieved map into numpy array and 
+        initiates pathplanning on said map, including replanning if needed.
+
+        Args:
+            msg (OccupancyGrid): 
+                The occupancy map ROS message
+        """
+        if self.VERBOSE:
+            print('recieved mapUGV of type: "%s' % msg.format)
+        if self.robo_coords and self.goal_coords:
+            #print("callback_map") 
+            # Convert Occupancy grid into Numpy Array
+            mapUGV =  self.occupancygrid_to_numpy(msg)
+            trav_bound_upper = self.traversability_upper_boundary
+            unknown_are = self.unknown_are
+            # everything above upper is 1 == nontraversable
+            mapUGV = np.where(mapUGV <= trav_bound_upper, 0, 1)
+            
+            self.mapUGV = mapUGV
+            
+            start = self.world2map([self.robo_coords[0], self.robo_coords[1]], msg)
+            goal = self.world2map([self.goal_coords[0], self.goal_coords[1]], msg)
+            
+            # Clumsy replanning logic
+                        
+            # if there has been a path
+            if self.planner: 
+                # and replanning is needed
+                if self.planner.need2replan(start, self.mapUGV):
+                    print("Replanning was needed.")
+                    # plan a new path
+                    if self.plan_path(start, goal, msg):
+                        # if a new path was found, publish
                         self.publish_path()
                 else:
-                    if self.plan_path(start, goal, msg):
-                            self.publish_path()
-                '''if self.plan_path(start, goal, msg):
-                        self.publish_path()'''
+                    # no replanning was needed, publish old path
+                    self.publish_path()
             else:
-                time.sleep(0.01)
+                # there has not been a path before, plan one
+                if self.plan_path(start, goal, msg):
+                        self.publish_path()
+            '''if self.plan_path(start, goal, msg):
+                    self.publish_path()'''
+        else:
+            time.sleep(0.01)
+    
          
-    def plan_path(self, start, goal, msg):
+    def plan_path(self, start: list, goal: list, msg: OccupancyGrid) -> bool:
+        """_summary_
+
+        Args:
+            start (list): 
+                The starting point for the planner
+            goal (list): 
+                The goal point to be found
+            msg (OccupancyGrid): 
+                The occupancy map in which to plan in
+
+        Returns:
+            bool: 
+                True if planner returned a path, False if not
+        """
         print("Started planning . . .")     
         self.planner = Planner(
             map = self.mapUGV,
@@ -120,16 +186,21 @@ class PlannerBridge():
             bdilation_multiplier = self.safety_buffer,
             cell_sizes= [10, 20])
         path = self.planner.search()
+        
         if len(path) > 1:
             self.latest_path =  self.planner2world(path, msg)
             return True
         else:
             return False
+
     
     def publish_path(self):
+        """
+        Publishes the path contained in self.latest_path as a path ROS message
+        """
         path2publish = self.latest_path
         msg = Path()
-        msg.header.seq = 0 #??
+        msg.header.seq = 0
         msg.header.frame_id = "/map"
         msg.header.stamp = rospy.Time.now()
         
@@ -150,53 +221,142 @@ class PlannerBridge():
         rospy.loginfo(msg)
         self.publisher.publish(msg) 
 
-    def world2map(self, point, msg):
-            resolution = msg.info.resolution
-            x = round((point[0] - msg.info.origin.position.x) / resolution, 3)
-            y = round((point[1] - msg.info.origin.position.y) / resolution, 3)
-            return [x, y]
+    
+    def world2map(self, point: list, msg: OccupancyGrid) -> list:
+        """
+        Convert a given single point from world-frame to map-frame
 
-    def map2world(self, point, msg):
+        Args:
+            point (list): 
+                The point to convert from world-frame
+            msg (OccupancyGrid): 
+                The occupancy map which the point is in
+
+        Returns:
+            converted_point (list): 
+                The point converted into map-frame
+        """
+        resolution = msg.info.resolution
+        x = round((point[0] - msg.info.origin.position.x) / resolution, 3)
+        y = round((point[1] - msg.info.origin.position.y) / resolution, 3)
+        converted_point = [x, y]
+        
+        return converted_point
+
+
+    def map2world(self, point: list, msg: OccupancyGrid) -> list:
+        """
+        Convert a given single point from map-frame to world-frame
+
+        Args:
+            point (list): 
+                The point to convert from map-frame
+            msg (OccupancyGrid): 
+                The occupancy map which the point is in
+
+        Returns:
+            converted_point (list): 
+                The point converted into world-frame
+        """
         resolution = msg.info.resolution
         x = round((point[0] * resolution + msg.info.origin.position.x), 3)
         y = round((point[1] * resolution + msg.info.origin.position.y), 3)
-        return [x, y]
+        converted_point = [x, y]
+        
+        return converted_point
 
-    def planner2world(self, path, occmap):
-            world_path = []
-            for p in path:
-                    a = self.map2world([p[0], p[1]], occmap)
-                    world_path.append(a)
-            return world_path
 
-    def occupancygrid_to_numpy(self, msg):
+    def planner2world(self, path: list, occmap: OccupancyGrid) -> list:
+        """
+        Convert a list of points, a path, from map-frame to world-frame
+
+        Args:
+            path (list): 
+                The path to convert in map-frame
+            occmap (OccupancyGrid): 
+                The occupancy map in which the path was planned
+
+        Returns:
+            world_path (list): 
+                The path converted into world-frame
+        """
+        world_path = []
+        for p in path:
+                a = self.map2world([p[0], p[1]], occmap)
+                world_path.append(a)
+                
+        return world_path
+
+
+    def occupancygrid_to_numpy(self, msg: OccupancyGrid) -> np.ma.array:
+        """
+        Convert an occupancygrid ROS message into numpy array.
+
+        Args:
+            msg (OccupancyGrid):
+                The occupancy grid to convert
+
+        Returns:
+            np.ma.array: 
+                The numpy array equivalent of the occupancy grid
+        """
         data = np.asarray(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
-        return np.ma.array(data)
+        numpy_data = np.ma.array(data)
+        return numpy_data
  
 # Main loop executed upon call
 def main():
+    """
+    Main method for executing the QFCE-RRT pathplanner in a live ROS environment
+    """
     try:
         # Initialize ROS node
-        rospy.init_node('main_planner_node', anonymous=False)
+        planner_node_str = 'main_planner_node'
+        rospy.init_node(planner_node_str, anonymous=False)
         # Topic IDs
         map_id= "/mapUGV"
         robotpose_id = "/robot/dlio/odom_node/odom"
         goal_id = "/clicked_point"
         # Planner settings
-        traversability_upper_boundary = 20
+        traversability_upper_boundary = 80
         unknown_are = 0
-        safety_buffer_in_meters = 4 #pixels
+        safety_buffer_pixels = 4 #pixels
         iterations = 500
         stepdistance = 1
+        
+        # Print settings in terminal
+        print(planner_node_str + f' initialized with settings:' +
+              f'\nMap ID: ' + map_id +
+              f'\nRobotpose ID: ' + robotpose_id +
+              f'\nGoal ID: ' + goal_id +
+              f'\n--\n' +
+              f'Cells above {traversability_upper_boundary} are non-traversable.\n' +
+              f'Unknown cells are interpreted as {unknown_are}. \n' +
+              f'Inflate objects by {safety_buffer_pixels} pixels.\n' +
+              f'Run for a maximum {iterations} iterations.\n' +
+              f'Minimum Quadtree cells are {stepdistance} x {stepdistance} pixels.'
+              )
+        
         # Initialize planner-ros-bridge
-        planner = PlannerBridge(map_id, robotpose_id, goal_id, traversability_upper_boundary, unknown_are, safety_buffer_in_meters, iterations, stepdistance)
+        planner = PlannerBridge(map_id = map_id, 
+                                robotpose_id = robotpose_id, 
+                                goal_id = goal_id, 
+                                traversability_upper_boundary = traversability_upper_boundary, 
+                                unknown_are = unknown_are, 
+                                safety_buffer = safety_buffer_pixels, 
+                                iterations = iterations, 
+                                stepdistance = stepdistance
+                                )
+        # Keep the ROS node running
         rospy.spin()
         
     except KeyboardInterrupt:
-        print(" Shutting down ROS planner main node")
+        print("--- Shutting down ROS planner main node ---")
         
     except Exception as e:
+        print("--- main() execution failed ---")
         print(e)
-        
+
+# Ensure main() is run upon script execution      
 if __name__ == '__main__':
     main()
