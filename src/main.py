@@ -29,7 +29,8 @@ class PlannerBridge():
                  unknown_are: int,
                  safety_buffer: float,
                  iterations: int,
-                 stepdistance: int
+                 stepdistance: int,
+                 mode_select: int
                  ):
         """
         Initialization method for the PlannerBridge class
@@ -71,6 +72,7 @@ class PlannerBridge():
         self.safety_buffer = safety_buffer
         self.iterations = iterations
         self.step_distance = stepdistance
+        self.mode = mode_select
         
         # Subscribe to relevant topics
         self.subscriber_pose = rospy.Subscriber(self.robotpose_id, Odometry, self.callback_pose)
@@ -184,7 +186,9 @@ class PlannerBridge():
             search_radius_increment = 0.5,
             max_neighbour_found = 8,
             bdilation_multiplier = self.safety_buffer,
-            cell_sizes= [10, 20])
+            cell_sizes= [10, 20],
+            mode_select=self.mode
+            )
         path = self.planner.search()
         
         if len(path) > 1:
@@ -323,6 +327,7 @@ def main():
         safety_buffer_pixels = 4 #pixels
         iterations = 500
         stepdistance = 1
+        mode = 0
         
         # Print settings in terminal
         print(planner_node_str + f' initialized with settings:' +
@@ -334,7 +339,8 @@ def main():
               f'Unknown cells are interpreted as {unknown_are}. \n' +
               f'Inflate objects by {safety_buffer_pixels} pixels.\n' +
               f'Run for a maximum {iterations} iterations.\n' +
-              f'Minimum Quadtree cells are {stepdistance} x {stepdistance} pixels.'
+              f'Minimum Quadtree cells are {stepdistance} x {stepdistance} pixels.\n' +
+              f'The selected mode was {mode}.'
               )
         
         # Initialize planner-ros-bridge
@@ -345,7 +351,8 @@ def main():
                                 unknown_are = unknown_are, 
                                 safety_buffer = safety_buffer_pixels, 
                                 iterations = iterations, 
-                                stepdistance = stepdistance
+                                stepdistance = stepdistance,
+                                mode_select=mode
                                 )
         # Keep the ROS node running
         rospy.spin()
