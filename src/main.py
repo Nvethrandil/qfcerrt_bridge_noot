@@ -15,12 +15,12 @@ from qfcerrt_noot.src.QFCE_RRT import QFCERRT as Planner
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from geometry_msgs.msg import Pose, PoseStamped, PointStamped
 
-# Planner to ROS System bridge
+# planner to ROS System bridge
 class PlannerBridge():
     """
     A planner-ros-bridge class which handles the transition between ROS messages and the python based pathplanner
     """
-    # Initialization function
+    # initialization function
     def __init__(self, 
                  map_id: str, 
                  robotpose_id: str,
@@ -108,9 +108,8 @@ class PlannerBridge():
             print('recieved posedata of type: "%s' % msg.format)
              
         self.goal_coords = [msg.point.x, msg.point.y]
-        
        
-    # Pathplanning is initiated by this callback method  
+    # pathplanning is initiated by this callback method  
     def callback_map(self, msg: OccupancyGrid):
         """
         Callback method for the occupancy map subscriber. Converts recieved map into numpy array and 
@@ -122,9 +121,8 @@ class PlannerBridge():
         """
         if self.VERBOSE:
             print('recieved mapUGV of type: "%s' % msg.format)
-        if self.robo_coords and self.goal_coords:
-            #print("callback_map") 
-            # Convert Occupancy grid into Numpy Array
+        if self.robo_coords and self.goal_coords: 
+            # convert Occupancy grid into Numpy Array
             mapUGV =  self.occupancygrid_to_numpy(msg)
             trav_bound_upper = self.traversability_upper_boundary
             unknown_are = self.unknown_are
@@ -136,7 +134,7 @@ class PlannerBridge():
             start = self.world2map([self.robo_coords[0], self.robo_coords[1]], msg)
             goal = self.world2map([self.goal_coords[0], self.goal_coords[1]], msg)
             
-            # Clumsy replanning logic
+            # clumsy replanning logic
                         
             # if there has been a path
             if self.planner: 
@@ -308,28 +306,30 @@ class PlannerBridge():
         numpy_data = np.ma.array(data)
         return numpy_data
  
-# Main loop executed upon call
+# main loop executed upon call
 def main():
     """
     Main method for executing the QFCE-RRT pathplanner in a live ROS environment
     """
     try:
-        # Initialize ROS node
+        # initialize ROS node
         planner_node_str = 'main_planner_node'
         rospy.init_node(planner_node_str, anonymous=False)
-        # Topic IDs
+        
+        # topic IDs
         map_id= "/mapUGV"
         robotpose_id = "/robot/dlio/odom_node/odom"
         goal_id = "/clicked_point"
-        # Planner settings
+        
+        # planner settings
         traversability_upper_boundary = 80
         unknown_are = 0
-        safety_buffer_pixels = 4 #pixels
+        safety_buffer_pixels = 4
         iterations = 500
         stepdistance = 1
         mode = 0
         
-        # Print settings in terminal
+        # print settings in terminal
         print(planner_node_str + f' initialized with settings:' +
               f'\nMap ID: ' + map_id +
               f'\nRobotpose ID: ' + robotpose_id +
@@ -343,7 +343,7 @@ def main():
               f'The selected mode was {mode}.'
               )
         
-        # Initialize planner-ros-bridge
+        # initialize planner-ros-bridge
         planner = PlannerBridge(map_id = map_id, 
                                 robotpose_id = robotpose_id, 
                                 goal_id = goal_id, 
@@ -354,7 +354,8 @@ def main():
                                 stepdistance = stepdistance,
                                 mode_select=mode
                                 )
-        # Keep the ROS node running
+        
+        # keep the ROS node running
         rospy.spin()
         
     except KeyboardInterrupt:
@@ -364,6 +365,6 @@ def main():
         print("--- main() execution failed ---")
         print(e)
 
-# Ensure main() is run upon script execution      
+# ensure main() is run upon script execution      
 if __name__ == '__main__':
     main()
