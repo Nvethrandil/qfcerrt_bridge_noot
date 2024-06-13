@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>nootplanner</name>
+  <name>qfcerrt_bridge_noot</name>
   <version>0.0.1</version>
   <description>The QFCE-RRT execution package for running it in ROS</description>
 
