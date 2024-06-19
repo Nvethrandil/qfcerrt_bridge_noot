@@ -364,7 +364,7 @@ def main():
               f'\nGoal ID: ' + goal_id +
               f'\nPath ID: ' + path_id +
               f'\n--\n' +
-              f'Run RRT* is: ' + run_rrt_star +
+              f'Run RRT* is: {run_rrt_star}' +
               f'\nCells above {traversability_upper_boundary} are non-traversable.\n' +
               f'Unknown cells are interpreted as {unknown_are}. \n' +
               f'Inflate objects by {safety_buffer_pixels} pixels.\n' +
