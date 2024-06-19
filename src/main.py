@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 __author__ = 'Noah Otte <nvethrandil@gmail.com>'
-__version__= '0.3'
+__version__= '1.0'
 __license__= 'MIT'
 
 # Ros libraries
@@ -10,7 +10,8 @@ import rospy
 import numpy as np
 import time
 # Pathplanner libraries
-from qfcerrt_noot.src.QFCE_RRT import QFCERRT as Planner
+from qfcerrt_noot.src.QFCE_RRT import QFCERRT
+from qfcerrt_noot.src.QFCE_RRT_Star import QFCERRTStar
 # Ros messages
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from geometry_msgs.msg import Pose, PoseStamped, PointStamped
@@ -21,7 +22,8 @@ class PlannerBridge():
     A planner-ros-bridge class which handles the transition between ROS messages and the python based pathplanner
     """
     # initialization function
-    def __init__(self, 
+    def __init__(self,
+                 run_rrt_star: bool,
                  map_id: str, 
                  robotpose_id: str,
                  goal_id: str,
@@ -37,6 +39,8 @@ class PlannerBridge():
         Initialization method for the PlannerBridge class
 
         Args:
+            run_rrt_star (bool):
+                A flag to indicate if RRT* shall be run, else regular RRT version
             map_id (str): 
                 The ROS topic name of the map to plan in
             robotpose_id (str): 
@@ -67,6 +71,8 @@ class PlannerBridge():
         self.robotpose_id = robotpose_id
         self.goal_id = goal_id
         self.path_id = path_id
+        # Planner version
+        self.run_rrt_star = run_rrt_star
         # Planning parameters
         self.planner = None
         self.traversability_upper_boundary = traversability_upper_boundary
@@ -175,19 +181,38 @@ class PlannerBridge():
             bool: 
                 True if planner returned a path, False if not
         """
-        print("Started planning . . .")     
-        self.planner = Planner(
-            map = self.mapUGV,
-            start = start,
-            goal = goal,
-            max_iterations = self.iterations,
-            stepdistance = self.step_distance,
-            plot_enabled = False,
-            max_neighbour_found = 10,
-            bdilation_multiplier = self.safety_buffer,
-            cell_sizes= [10, 20],
-            mode_select=self.mode
-            )
+        print("Started planning . . .")
+        
+        # if RRT* version shall be run
+        if self.run_rrt_star:
+            self.planner = QFCERRTStar(
+                map = self.mapUGV,
+                start = start,
+                goal = goal,
+                max_iterations = self.iterations,
+                stepdistance = self.step_distance,
+                plot_enabled = False,
+                max_neighbour_found = 10,
+                bdilation_multiplier = self.safety_buffer,
+                cell_sizes= [10, 20],
+                mode_select=self.mode
+                )
+        # else regular RRT version shall be run
+        else:     
+            self.planner = QFCERRT(
+                map = self.mapUGV,
+                start = start,
+                goal = goal,
+                max_iterations = self.iterations,
+                stepdistance = self.step_distance,
+                plot_enabled = False,
+                max_neighbour_found = 10,
+                bdilation_multiplier = self.safety_buffer,
+                cell_sizes= [10, 20],
+                mode_select=self.mode
+                )
+        
+        # execute planning  
         path = self.planner.search()
         
         if len(path) > 1:
@@ -322,6 +347,8 @@ def main():
         robotpose_id = "/robot/dlio/odom_node/odom"
         goal_id = "/clicked_point"
         path_id = "path_pub_live"
+        # planner variant (RRT or RRT*)
+        run_rrt_star = True
         # planner settings
         traversability_upper_boundary = 80
         unknown_are = 0
@@ -337,7 +364,8 @@ def main():
               f'\nGoal ID: ' + goal_id +
               f'\nPath ID: ' + path_id +
               f'\n--\n' +
-              f'Cells above {traversability_upper_boundary} are non-traversable.\n' +
+              f'Run RRT* is: ' + run_rrt_star +
+              f'\nCells above {traversability_upper_boundary} are non-traversable.\n' +
               f'Unknown cells are interpreted as {unknown_are}. \n' +
               f'Inflate objects by {safety_buffer_pixels} pixels.\n' +
               f'Run for a maximum {iterations} iterations.\n' +
@@ -346,7 +374,8 @@ def main():
               )
         
         # initialize planner-ros-bridge
-        planner = PlannerBridge(map_id = map_id, 
+        planner = PlannerBridge(run_rrt_star = run_rrt_star,
+                                map_id = map_id, 
                                 robotpose_id = robotpose_id, 
                                 goal_id = goal_id,
                                 path_id = path_id, 
