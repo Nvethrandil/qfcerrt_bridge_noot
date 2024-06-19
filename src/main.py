@@ -25,6 +25,7 @@ class PlannerBridge():
                  map_id: str, 
                  robotpose_id: str,
                  goal_id: str,
+                 path_id: str,
                  traversability_upper_boundary: int, 
                  unknown_are: int,
                  safety_buffer: float,
@@ -65,6 +66,7 @@ class PlannerBridge():
         self.map_id = map_id
         self.robotpose_id = robotpose_id
         self.goal_id = goal_id
+        self.path_id = path_id
         # Planning parameters
         self.planner = None
         self.traversability_upper_boundary = traversability_upper_boundary
@@ -80,7 +82,7 @@ class PlannerBridge():
         # Planning is initiated by callback of map
         self.subscriber_map = rospy.Subscriber(self.map_id, OccupancyGrid, self.callback_map)
         # Create publisher
-        self.publisher = rospy.Publisher('path_pub', Path, queue_size=1)  
+        self.publisher = rospy.Publisher(self.path_id, Path, queue_size=1)  
     
     
     def callback_pose(self, data: Pose):
@@ -181,8 +183,7 @@ class PlannerBridge():
             max_iterations = self.iterations,
             stepdistance = self.step_distance,
             plot_enabled = False,
-            search_radius_increment = 0.5,
-            max_neighbour_found = 8,
+            max_neighbour_found = 10,
             bdilation_multiplier = self.safety_buffer,
             cell_sizes= [10, 20],
             mode_select=self.mode
@@ -320,7 +321,7 @@ def main():
         map_id= "/mapUGV"
         robotpose_id = "/robot/dlio/odom_node/odom"
         goal_id = "/clicked_point"
-        
+        path_id = "path_pub_live"
         # planner settings
         traversability_upper_boundary = 80
         unknown_are = 0
@@ -334,6 +335,7 @@ def main():
               f'\nMap ID: ' + map_id +
               f'\nRobotpose ID: ' + robotpose_id +
               f'\nGoal ID: ' + goal_id +
+              f'\nPath ID: ' + path_id +
               f'\n--\n' +
               f'Cells above {traversability_upper_boundary} are non-traversable.\n' +
               f'Unknown cells are interpreted as {unknown_are}. \n' +
@@ -346,7 +348,8 @@ def main():
         # initialize planner-ros-bridge
         planner = PlannerBridge(map_id = map_id, 
                                 robotpose_id = robotpose_id, 
-                                goal_id = goal_id, 
+                                goal_id = goal_id,
+                                path_id = path_id, 
                                 traversability_upper_boundary = traversability_upper_boundary, 
                                 unknown_are = unknown_are, 
                                 safety_buffer = safety_buffer_pixels, 
