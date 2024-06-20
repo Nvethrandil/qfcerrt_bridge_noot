@@ -33,7 +33,8 @@ class PlannerBridge():
                  safety_buffer: float,
                  iterations: int,
                  stepdistance: int,
-                 mode_select: int
+                 mode_select: int,
+                 danger_zone: int
                  ):
         """
         Initialization method for the PlannerBridge class
@@ -57,6 +58,8 @@ class PlannerBridge():
                 The maximum amount of iterations to let the planner run
             stepdistance (int): 
                 The root of the minimum cell area tolerated in the Quadtree
+            danger_zone (int):
+                An integer distance (in pixels) at which detected collisions will trigger replanning
         """
         print("PlannerBridge is waiting for all topics . . .")
         # Placeholders
@@ -81,6 +84,7 @@ class PlannerBridge():
         self.iterations = iterations
         self.step_distance = stepdistance
         self.mode = mode_select
+        self.danger_zone = danger_zone
         
         # Subscribe to relevant topics
         self.subscriber_pose = rospy.Subscriber(self.robotpose_id, Odometry, self.callback_pose)
@@ -195,7 +199,8 @@ class PlannerBridge():
                 max_neighbour_found = 10,
                 bdilation_multiplier = self.safety_buffer,
                 cell_sizes= [10, 20],
-                mode_select=self.mode
+                mode_select= self.mode,
+                danger_zone= self.danger_zone
                 )
         # else regular RRT version shall be run
         else:     
@@ -208,8 +213,9 @@ class PlannerBridge():
                 plot_enabled = False,
                 max_neighbour_found = 10,
                 bdilation_multiplier = self.safety_buffer,
-                cell_sizes= [10, 20],
-                mode_select=self.mode
+                cell_sizes = [10, 20],
+                mode_select = self.mode,
+                danger_zone= self.danger_zone
                 )
         
         # execute planning  
@@ -227,27 +233,32 @@ class PlannerBridge():
         Publishes the path contained in self.latest_path as a path ROS message
         """
         path2publish = self.latest_path
-        msg = Path()
-        msg.header.seq = 0
-        msg.header.frame_id = "/map"
-        msg.header.stamp = rospy.Time.now()
         
-        for i in range(len(path2publish)):
-            pose_stamped = PoseStamped()
-            pose_stamped.header.seq = i
-            pose_stamped.header.frame_id = "/world_frame"
-            pose_stamped.header.stamp = rospy.Time.now()
+        # exclude an empty path in edge-case errors
+        if not path2publish:
+            pass
+        else:
+            msg = Path()
+            msg.header.seq = 0
+            msg.header.frame_id = "/map"
+            msg.header.stamp = rospy.Time.now()
             
-            [x, y] = path2publish[i]
-            pose_stamped.pose.position.x = x
-            pose_stamped.pose.position.y = y
-            # 2D path -> z = 0
-            pose_stamped.pose.position.z = 0
-            
-            msg.poses.append(pose_stamped) 
+            for i in range(len(path2publish)):
+                pose_stamped = PoseStamped()
+                pose_stamped.header.seq = i
+                pose_stamped.header.frame_id = "/world_frame"
+                pose_stamped.header.stamp = rospy.Time.now()
                 
-        rospy.loginfo(msg)
-        self.publisher.publish(msg) 
+                [x, y] = path2publish[i]
+                pose_stamped.pose.position.x = x
+                pose_stamped.pose.position.y = y
+                # 2D path -> z = 0
+                pose_stamped.pose.position.z = 0
+                
+                msg.poses.append(pose_stamped) 
+                    
+            #rospy.loginfo(msg)
+            self.publisher.publish(msg) 
 
     
     def world2map(self, point: list, msg: OccupancyGrid) -> list:
@@ -353,9 +364,10 @@ def main():
         traversability_upper_boundary = 80
         unknown_are = 0
         safety_buffer_pixels = 4
-        iterations = 500
+        iterations = 200
         stepdistance = 1
         mode = 0
+        danger_zone = 20
         
         # print settings in terminal
         print(planner_node_str + f' initialized with settings:' +
@@ -365,12 +377,13 @@ def main():
               f'\nPath ID: ' + path_id +
               f'\n--\n' +
               f'Run RRT* is: {run_rrt_star}' +
-              f'\nCells above {traversability_upper_boundary} are non-traversable.\n' +
+              f'\nDanger zone distance is {danger_zone} pixels. \n' +
+              f'Cells above {traversability_upper_boundary} are non-traversable.\n' +
               f'Unknown cells are interpreted as {unknown_are}. \n' +
               f'Inflate objects by {safety_buffer_pixels} pixels.\n' +
               f'Run for a maximum {iterations} iterations.\n' +
               f'Minimum Quadtree cells are {stepdistance} x {stepdistance} pixels.\n' +
-              f'The selected mode was {mode}.'
+              f'The selected post-processing mode was {mode}.'
               )
         
         # initialize planner-ros-bridge
@@ -384,7 +397,8 @@ def main():
                                 safety_buffer = safety_buffer_pixels, 
                                 iterations = iterations, 
                                 stepdistance = stepdistance,
-                                mode_select=mode
+                                mode_select= mode,
+                                danger_zone= danger_zone
                                 )
         
         # keep the ROS node running
