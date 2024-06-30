@@ -34,7 +34,8 @@ class PlannerBridge():
                  iterations: int,
                  stepdistance: int,
                  mode_select: int,
-                 danger_zone: int
+                 danger_zone: int,
+                 fov: int
                  ):
         """
         Initialization method for the PlannerBridge class
@@ -85,7 +86,7 @@ class PlannerBridge():
         self.step_distance = stepdistance
         self.mode = mode_select
         self.danger_zone = danger_zone
-        
+        self.fov = fov
         # Subscribe to relevant topics
         self.subscriber_pose = rospy.Subscriber(self.robotpose_id, Odometry, self.callback_pose)
         self.subscriber_goal = rospy.Subscriber(self.goal_id, PointStamped, self.callback_goal)
@@ -153,6 +154,11 @@ class PlannerBridge():
                 # and replanning is needed
                 if self.planner.need2replan(start, self.mapUGV):
                     print("Replanning was needed.")
+                    
+                    # publish rover position to make it stop EXPERIMENTAL
+                    self.latest_path = [self.robo_coords]
+                    self.publish_path()
+                    
                     # plan a new path
                     if self.plan_path(start, goal, msg):
                         # if a new path was found, publish
@@ -200,8 +206,12 @@ class PlannerBridge():
                 bdilation_multiplier = self.safety_buffer,
                 cell_sizes= [10, 20],
                 mode_select= self.mode,
-                danger_zone= self.danger_zone
+                danger_zone= self.danger_zone,
+                fov = self.fov
                 )
+            # execute planning  
+            path = self.planner.search_rrts()
+            
         # else regular RRT version shall be run
         else:     
             self.planner = QFCERRT(
@@ -215,11 +225,13 @@ class PlannerBridge():
                 bdilation_multiplier = self.safety_buffer,
                 cell_sizes = [10, 20],
                 mode_select = self.mode,
-                danger_zone= self.danger_zone
+                danger_zone= self.danger_zone,
+                fov = self.fov
                 )
+            # execute planning  
+            path = self.planner.search()
         
-        # execute planning  
-        path = self.planner.search()
+        
         
         if len(path) > 1:
             self.latest_path =  self.planner2world(path, msg)
@@ -368,7 +380,7 @@ def main():
         stepdistance = 1
         mode = 0
         danger_zone = 20
-        
+        fov = 90
         # print settings in terminal
         print(planner_node_str + f' initialized with settings:' +
               f'\nMap ID: ' + map_id +
@@ -383,7 +395,8 @@ def main():
               f'Inflate objects by {safety_buffer_pixels} pixels.\n' +
               f'Run for a maximum {iterations} iterations.\n' +
               f'Minimum Quadtree cells are {stepdistance} x {stepdistance} pixels.\n' +
-              f'The selected post-processing mode was {mode}.'
+              f'The selected post-processing mode was {mode}. \n' +
+              f'FOV is {fov} degrees.'
               )
         
         # initialize planner-ros-bridge
@@ -398,7 +411,8 @@ def main():
                                 iterations = iterations, 
                                 stepdistance = stepdistance,
                                 mode_select= mode,
-                                danger_zone= danger_zone
+                                danger_zone= danger_zone,
+                                fov=fov
                                 )
         
         # keep the ROS node running
