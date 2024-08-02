@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 __author__ = 'Noah Otte <nvethrandil@gmail.com>'
-__version__= '1.0'
+__version__= '4.0'
 __license__= 'MIT'
 
 # Ros libraries
@@ -156,7 +156,7 @@ class PlannerBridge():
                     print("Replanning was needed.")
 
                     # publish rover position to make it stop EXPERIMENTAL
-                    self.latest_path = [self.robo_coords, self.robo_coords, self.robo_coords]
+                    self.latest_path = [self.robo_coords, self.robo_coords]
                     self.publish_path()
 
                     # plan a new path
@@ -203,8 +203,8 @@ class PlannerBridge():
                 stepdistance = self.step_distance,
                 plot_enabled = False,
                 max_neighbour_found = 8,
-                bdilation_multiplier = 4,#self.safety_buffer,
-                cell_sizes= [10, 50],
+                bdilation_multiplier = self.safety_buffer,
+                cell_sizes= [10, 20],
                 mode_select= self.mode,
                 danger_zone= self.danger_zone,
                 fov = self.fov
@@ -373,13 +373,13 @@ def main():
         # planner variant (RRT or RRT*)
         run_rrt_star = True
         # planner settings
-        traversability_upper_boundary = 80
+        traversability_upper_boundary = 90
         unknown_are = 0
-        safety_buffer_pixels = 2
-        iterations = 500
+        safety_buffer_pixels = 4
+        iterations = 750
         stepdistance = 1
         mode = 2
-        danger_zone = 20
+        danger_zone = 50
         fov = 90
         # print settings in terminal
         print(planner_node_str + f' initialized with settings:' +
